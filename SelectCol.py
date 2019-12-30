@@ -1,4 +1,3 @@
-# /usr/bin/env python3
 def rowTodict(format_, row):
     return_col = []
     for ref in row:

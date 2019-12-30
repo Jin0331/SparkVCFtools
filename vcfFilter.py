@@ -1,4 +1,3 @@
-# /usr/bin/env python3
 import re
 
 def preVCF(hdfs, flag, spark): # hdfs://, flag 0 == lhs, 1 == rhs
@@ -11,7 +10,7 @@ def preVCF(hdfs, flag, spark): # hdfs://, flag 0 == lhs, 1 == rhs
         for index in range(len(return_vcf.columns[:9])):
             return_vcf = return_vcf.withColumnRenamed(return_vcf.columns[index], return_vcf.columns[index] + "_temp") 
     return return_vcf.coalesce(20)
-    
+
 def chr_remove(chrom):
     chrom = re.sub("chr", "", chrom) # "chr" to ""
     if chrom == "X": 

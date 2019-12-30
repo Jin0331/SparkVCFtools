@@ -1,2 +1,4 @@
 # SparkVCFtools
-VCFtools using Spark
+VCF merge
+VCF intersect
+
