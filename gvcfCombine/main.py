@@ -1,13 +1,25 @@
+# Spark & python function
 import findspark
 findspark.init()
 
 # Spark & python function
 from pyspark.sql import SparkSession
-from pyspark.sql.types import IntegerType
-from pyspark.sql.functions import udf, col, desc, asc, coalesce, broadcast
-from pyspark.sql.functions import substring, length, regexp_replace
+from pyspark.sql.types import IntegerType, StringType
+import pyspark.sql.functions as F
 from pyspark import Row
+from pyspark.sql.window import Window
+
 import re
+import subprocess
+
+spark = SparkSession.builder.master("spark://master:7077")\
+                        .appName("gVCF_combine")\
+                        .config("spark.executor.memory", "18G")\
+                        .config("spark.executor.core", "3")\
+                        .config("spark.sql.shuffle.partitions", 30)\
+                        .config("spark.driver.memory", "13G")\
+                        .config("spark.driver.maxResultSize", "10G")\
+                        .getOrCreate()
     
 if __name__ == "__main__":
     spark = SparkSession.builder.master("spark://master:7077")\
@@ -26,24 +38,46 @@ if __name__ == "__main__":
     chr_remove_udf = udf(chr_remove)
     ###############################
 
-    # load vcf
     # main
-    left = preVCF("hdfs://master:9000/raw_data/gvcf/ND02798_eg.raw.vcf", 0, spark)
-    right = preVCF("hdfs://master:9000/raw_data/gvcf/ND02809_eg.raw.vcf", 1, spark)
+    hdfs = "hdfs://master:9000"
+    hdfs_list = hadoop_list(2, "/raw_data/gvcf")
+    gvcf_list = []
+    gvcf_combine_result = []
 
-    join_vcf = left.join(right, ["#CHROM", "POS", "REF"], "full")
-    #join_vcf = left.join(right, ["#CHROM", "POS", "REF"], "full").cache()
-    #join_vcf.count()
+    for index in range(len(hdfs_list)):
+        if index == 0:
+            gvcf_list.append(preVCF(hdfs + hdfs_list[index].decode("UTF-8"), 0, spark))
+        else:
+            gvcf_list.append(preVCF(hdfs + hdfs_list[index].decode("UTF-8"), 1, spark))
 
-    # window
-    lookup_window = Window.partitionBy("#CHROM").orderBy("POS").rangeBetween(Window.unboundedPreceding, 0)
-
-    sample_col = left.columns[9:] + right.columns[9:]
-    header = left.columns + right.columns[9:] 
-    join_vcf_update = join_vcf.withColumn("INFO", F.last("INFO", ignorenulls = True).over(lookup_window))\
-                                    .withColumn("INFO_temp", F.last("INFO_temp", ignorenulls = True).over(lookup_window))
-    for col_name in sample_col:
-        join_vcf_update = join_vcf_update.withColumn(col_name, F.last(col_name, ignorenulls = True).over(lookup_window))
-    join_vcf_update = join_vcf_update.orderBy(F.col("#CHROM"), F.col("POS")).rdd.map(lambda row : selectCol(row, sample_col)).toDF(header).cache()
-                                            
-    join_vcf_update.count()
+    for index in range(1, len(hdfs_list)):
+        if index == 1:
+            join_vcf = gvcf_list[0].join(gvcf_list[index], ["#CHROM", "POS", "REF"], "full")
+        else :
+            join_vcf = gvcf_combine_result[index - 2].join(gvcf_list[index], ["#CHROM", "POS", "REF"], "full")
+            
+        # window
+        lookup_window = Window.partitionBy("#CHROM").orderBy("POS").rangeBetween(Window.unboundedPreceding, 0)
+        
+        # schema & header
+        if index == 1:
+            sample_col = gvcf_list[0].columns[9:] + gvcf_list[index].columns[9:]
+            header = gvcf_list[0].columns + gvcf_list[index].columns[9:] 
+        else :
+            sample_col = gvcf_combine_result[index - 2].columns[9:] + gvcf_list[index].columns[9:]
+            header = gvcf_combine_result[index - 2].columns + gvcf_list[index].columns[9:] 
+            
+        # null value update
+        join_vcf_update = join_vcf.withColumn("INFO", F.last("INFO", ignorenulls = True).over(lookup_window))\
+                                        .withColumn("INFO_temp", F.last("INFO_temp", ignorenulls = True).over(lookup_window))
+        for col_name in sample_col:
+            join_vcf_update = join_vcf_update.withColumn(col_name, F.last(col_name, ignorenulls = True).over(lookup_window))
+        
+        # finally value append
+        gvcf_combine_result.append(join_vcf_update.orderBy(F.col("#CHROM"), F.col("POS"))\
+                                .rdd.map(lambda row : selectCol(row, sample_col))\
+                                .toDF(header).cache())
+        gvcf_combine_result[index - 1].count()
+        
+        if index != 1:
+            gvcf_combine_result[index - 2].unpersist()

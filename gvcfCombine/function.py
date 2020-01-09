@@ -1,16 +1,14 @@
 def preVCF(hdfs, flag, spark):
     vcf = spark.sparkContext.textFile(hdfs)
-
     # drop ---> QUAL FILTER column
     header_contig = vcf.filter(lambda x : re.match("^#", x))
     col_name = vcf.filter(lambda x : x.startswith("#CHROM")).first().split("\t")
     vcf_data = vcf.filter(lambda x : re.match("[^#][^#]", x))\
                        .map(lambda x : x.split("\t"))\
                        .toDF(col_name)\
-                       .withColumn("POS", F.col("POS").cast(IntegerType()))\     
+                       .withColumn("POS", F.col("POS").cast(IntegerType()))\
                        .drop(F.col("QUAL")).drop(F.col("FILTER"))
-
-    # flag에 따라 column 명 변경
+    
     if flag == 1:
         for index in range(len(vcf_data.columns[:9])):
             compared_arr = ["#CHROM", "POS", "REF"]
@@ -54,4 +52,10 @@ def selectCol(row, sample):
         return_row += (row[-1],)
     return return_row
 
-#def selectCol_UDF()
+def hadoop_list(length, hdfs):
+    args = "hdfs dfs -ls "+ hdfs +" | awk '{print $8}'"
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+    s_output, s_err = proc.communicate()
+    all_dart_dirs = s_output.split()
+    
+    return all_dart_dirs[:length]
