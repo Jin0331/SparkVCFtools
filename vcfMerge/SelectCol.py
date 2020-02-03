@@ -1,3 +1,5 @@
+import re
+
 def rowTodict(format_, row):
     return_col = []
     for ref in row:
@@ -62,7 +64,7 @@ def selectCol(row, lhs_len, rhs_len):
         for ref in range(lhs_len - 9):
             temp += ("0/0",) # GC
             AN += 1
-           
+        
         # info
         AN *= 2
         info = ("AC="+str(AC)+";AN="+str(AN)+";SF=1",)
@@ -70,7 +72,6 @@ def selectCol(row, lhs_len, rhs_len):
     
     # case, control 둘다 존재
     else:
-        
         # QUAL re-calculation
         format_, lhs_format, rhs_format = row[8].split(":")+row[lhs_len + 8].split(":"), row[8].split(":"), row[lhs_len + 8].split(":")
         dup_format, lhs_col, rhs_col = [], rowTodict(lhs_format, row[9:lhs_len]), rowTodict(rhs_format, row[lhs_len + 9:])
