@@ -6,78 +6,122 @@ findspark.init()
 from pyspark.sql import SparkSession
 from pyspark.sql.types import IntegerType, StringType
 import pyspark.sql.functions as F
-from pyspark import Row
+from pyspark.sql.functions import when
 from pyspark.sql.window import Window
-
-import re
-import subprocess
-
-spark = SparkSession.builder.master("spark://master:7077")\
-                        .appName("gVCF_combine")\
-                        .config("spark.executor.memory", "18G")\
-                        .config("spark.executor.core", "3")\
-                        .config("spark.sql.shuffle.partitions", 30)\
-                        .config("spark.driver.memory", "13G")\
-                        .config("spark.driver.maxResultSize", "10G")\
-                        .getOrCreate()
-    
+  
 if __name__ == "__main__":
+# Start for Spark Session
     spark = SparkSession.builder.master("spark://master:7077")\
-                        .appName("gVCF_combine")\
-                        .config("spark.executor.memory", "18G")\
-                        .config("spark.executor.core", "3")\
-                        .config("spark.sql.shuffle.partitions", 20)\
-                        .config("spark.driver.maxResultSize", "10G")\
-                        .getOrCreate()
+                            .appName("gVCF_combine_20")\
+                            .config("spark.driver.memory", "8G")\
+                            .config("spark.driver.maxResultSize", "8G")\
+                            .config("spark.executor.memory", "24G")\
+                            .config("spark.executor.core", 3)\
+                            .config("spark.sql.execution.arrow.enabled", "false")\
+                            .config("spark.sql.execution.arrow.fallback.enabled", "false")\
+                            .config("spark.network.timeout", "9999s")\
+                            .config("spark.files.fetchTimeout", "9999s")\
+                            .config("spark.sql.shuffle.partitions", 40)\
+                            .config("spark.eventLog.enabled", "true")\
+                            .getOrCreate()
 
-    #spark.sparkContext.addPyFile("SparkVCFtools/vcfFilter.py")
+    spark.sparkContext.addPyFile("function.py")
 
     #### addPyFile import #########
-    from SelectCol import *
-    from vcfFilter import *
-    chr_remove_udf = udf(chr_remove)
-    ###############################
+    from function import *
 
     # main
+    folder_name = input("folder name : ")
+    gvcf_count = int(input("gvcf count : "))
+
     hdfs = "hdfs://master:9000"
-    hdfs_list = hadoop_list(2, "/raw_data/gvcf")
-    gvcf_list = []
-    gvcf_combine_result = []
+    hdfs_list = hadoop_list(gvcf_count, "/raw_data/gvcf")
+
+    vcf_list = list()
+    vcf_join_list = list()  
+    addIndex_udf = F.udf(addIndex, returnType=IntegerType())
+
+    # gVCF load
 
     for index in range(len(hdfs_list)):
         if index == 0:
-            gvcf_list.append(preVCF(hdfs + hdfs_list[index].decode("UTF-8"), 0, spark))
+            vcf_list.append(preVCF(hdfs + hdfs_list[index].decode("UTF-8"), 0, spark).cache())
+            inner_pos = vcf_list[index].select(F.col("#CHROM"), F.col("POS"), F.col("REF"))
+            info = vcf_list[index].select(vcf_list[index].columns[:9])
         else:
-            gvcf_list.append(preVCF(hdfs + hdfs_list[index].decode("UTF-8"), 1, spark))
+            vcf_list.append(preVCF(hdfs + hdfs_list[index].decode("UTF-8"), 1, spark).cache())
+            inner_pos_right = vcf_list[index].select(F.col("#CHROM"), F.col("POS"), F.col("REF"))
+            
+            if index % 2 != 0 and index != len(hdfs_list) - 1:
+                vcf_join_list.append(sample_join(vcf_list[index - 1], vcf_list[index]).cache())
+            if index == len(hdfs_list) - 1:
+                vcf_join_list.append(vcf_list[index].select(F.col("#CHROM"), F.col("POS"), F.col("REF"), vcf_list[index].columns[-1]).cache())
+            
+            # for column null value
+            info = info.join(vcf_list[index].select(vcf_list[index].columns[:9]), ["#CHROM", "POS", "REF"], "full")\
+                .withColumn("ID", when(F.col("ID").isNull(), F.col("ID_temp")).otherwise(F.col("ID")))\
+                .withColumn("ALT",when(F.col("ALT").isNull(), F.col("ALT_temp")).otherwise(F.col("ALT")))\
+                .withColumn("FORMAT", when(F.col("FORMAT").isNull(), F.col("FORMAT_temp")).otherwise(F.col("FORMAT")))\
+                .withColumn("QUAL", F.lit(".")).withColumn("FILTER", F.lit("."))\
+                .withColumn("INFO", when(F.col("INFO").startswith("END") == False, F.col("INFO"))\
+                            .when(F.col("INFO_temp").startswith("END") == False, F.col("INFO_temp")))\
+                .drop("INFO_temp", "ID_temp", "ALT_temp", "FORMAT_temp", "QUAL_temp", "FILTER_temp")
+            
+            # for index
+            inner_pos = inner_pos.join(inner_pos_right, ["#CHROM", "POS", "REF"], "inner")
+    
+    info_window = Window.partitionBy("#CHROM").orderBy("POS")
+    info = info.withColumn("INFO", when(F.col("INFO").isNull(), F.concat(F.lit("END="), F.lead("POS", 1).over(info_window) - 1))\
+                                .otherwise(F.col("INFO")))
+    info = info.orderBy(F.col("#CHROM"), F.col("POS")).cache()
+    info.count()
 
-    for index in range(1, len(hdfs_list)):
-        if index == 1:
-            join_vcf = gvcf_list[0].join(gvcf_list[index], ["#CHROM", "POS", "REF"], "full")
-        else :
-            join_vcf = gvcf_combine_result[index - 2].join(gvcf_list[index], ["#CHROM", "POS", "REF"], "full")
-            
-        # window
-        lookup_window = Window.partitionBy("#CHROM").orderBy("POS").rangeBetween(Window.unboundedPreceding, 0)
+    # pos_index
+    inner_pos = spark.createDataFrame(inner_pos.drop(F.col("REF")).orderBy(F.col("#CHROM"), F.col("POS"))\
+                .toPandas().groupby("#CHROM", group_keys=False).apply(sampling_func, ran = 13).sort_index())\
+                .withColumnRenamed("#CHROM", "chr_temp")\
+                .withColumnRenamed("POS", "pos_temp")
+    inner_pos = inner_pos.orderBy(F.col("#CHROM"), F.col("POS")).cache()
+    inner_pos.count()
+    print("gVCF lode & join (inner, full) done@")
+
+    pos_index = Window.partitionBy("#CHROM").orderBy("POS").rangeBetween(Window.unboundedPreceding, Window.currentRow)
+    ex = [info["#CHROM"] == inner_pos["chr_temp"], info["POS"] == inner_pos["pos_temp"]]
+    temp = info.select(F.col("#CHROM"), F.col("POS")).join(inner_pos, ex, "full")\
+            .drop(F.col("chr_temp"))\
+            .withColumn("POS_INDEX", when(F.col("pos_temp").isNull(), F.last(F.col("pos_temp"), ignorenulls=True).over(pos_index))\
+                            .otherwise(F.col("pos_temp")))\
+            .drop(F.col("pos_temp")).orderBy(F.col("#CHROM"), F.col("POS"))
+
+    info_index = info.join(temp, ["#CHROM", "POS"], "inner").orderBy(F.col("#CHROM"), F.col("POS")).dropDuplicates()\
+                    .repartition(F.col("#CHROM"), F.col("POS_INDEX")).cache()
+
+    info_index.count()
+    info.unpersist()
+    print("POS_INDEX done!")
+
+    # sample window & parquet write
+    vcf_list_pos_index = list()
+    sample_w = Window.partitionBy(F.col("#CHROM"), F.col("POS_INDEX")).orderBy(F.col("POS")).rangeBetween(Window.unboundedPreceding, Window.currentRow)  
+
+    for index in range(len(vcf_join_list)):
+        temp = info_index.select(["#CHROM","POS","REF","POS_INDEX"])\
+            .join(vcf_join_list[index].select(["#CHROM", "POS", "REF"] + vcf_join_list[index].columns[3:]), ["#CHROM", "POS", "REF"], "full")
         
-        # schema & header
-        if index == 1:
-            sample_col = gvcf_list[0].columns[9:] + gvcf_list[index].columns[9:]
-            header = gvcf_list[0].columns + gvcf_list[index].columns[9:] 
-        else :
-            sample_col = gvcf_combine_result[index - 2].columns[9:] + gvcf_list[index].columns[9:]
-            header = gvcf_combine_result[index - 2].columns + gvcf_list[index].columns[9:] 
-            
-        # null value update
-        join_vcf_update = join_vcf.withColumn("INFO", F.last("INFO", ignorenulls = True).over(lookup_window))\
-                                        .withColumn("INFO_temp", F.last("INFO_temp", ignorenulls = True).over(lookup_window))
-        for col_name in sample_col:
-            join_vcf_update = join_vcf_update.withColumn(col_name, F.last(col_name, ignorenulls = True).over(lookup_window))
+        # sample window
+        for sample_name in temp.columns[3:]:     
+            temp = temp.withColumn(sample_name, when(F.col(sample_name).isNull(), F.last(sample_name, ignorenulls=True).over(sample_w))\
+                                                    .otherwise(F.col(sample_name)))
+        vcf_list_pos_index.append(temp)
         
-        # finally value append
-        gvcf_combine_result.append(join_vcf_update.orderBy(F.col("#CHROM"), F.col("POS"))\
-                                .rdd.map(lambda row : selectCol(row, sample_col))\
-                                .toDF(header).cache())
-        gvcf_combine_result[index - 1].count()
+    for write_parquet in vcf_list_pos_index:
+        write_parquet.drop(F.col("POS_INDEX"))\
+                    .write.partitionBy("#CHROM")\
+                    .mode('overwrite')\
+                    .parquet("/raw_data/output/gvcf_output/"+ folder_name + "/_".join(write_parquet.columns[4:]) + ".g.vcf")
         
-        if index != 1:
-            gvcf_combine_result[index - 2].unpersist()
+    info_index.drop(F.col("POS_INDEX"))\
+            .write.partitionBy("#CHROM").mode('overwrite')\
+            .parquet("/raw_data/output/gvcf_output/" + folder_name + "/info.g.vcf")
+    
+    print("paquet write done!!")
