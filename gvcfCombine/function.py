@@ -1,9 +1,20 @@
 import pyspark.sql.functions as F
-from pyspark.sql.types import IntegerType, StringType
-from pyspark.sql.functions import when
+from pyspark.sql import DataFrame
+from pyspark.sql.functions import pandas_udf, udf, explode, array, when
+from pyspark.sql.types import IntegerType, StringType, ArrayType,BooleanType
+
 import re
 import subprocess
+from functools import reduce 
 
+
+def hadoop_list(length, hdfs):
+    args = "hdfs dfs -ls "+ hdfs +" | awk '{print $8}'"
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+    s_output, s_err = proc.communicate()
+    all_dart_dirs = s_output.split()
+    
+    return all_dart_dirs[:length]
 
 def hadoop_list(length, hdfs):
     args = "hdfs dfs -ls "+ hdfs +" | awk '{print $8}'"
@@ -40,7 +51,24 @@ def addIndex(POS, size):
         return POS
     else :
         return int(POS / size + 1) 
+addIndex_udf = udf(addIndex, returnType=IntegerType())
 
+# for indel
+word_len = udf(lambda col : True if len(col) >= 2 else False, returnType=BooleanType())
+ref_melt = udf(lambda ref : list(ref)[1:], ArrayType(StringType()))    
+
+def ref_concat(temp): 
+    return_str = []
+    for num in range(0, len(temp)):
+        return_str.append(temp[num] + "_" + str(int(num + 1)))
+    return return_str
+ref_concat = udf(ref_concat, ArrayType(StringType()))
+
+def unionAll(*dfs):
+    return reduce(DataFrame.unionByName, dfs) 
+
+# for sample value
+value_change = udf(lambda value : "./." + value[3:], StringType())
 
 # for POS index
 def sampling_func(data, ran):
