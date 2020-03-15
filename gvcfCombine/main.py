@@ -5,29 +5,38 @@ findspark.init()
 # Spark function
 from pyspark import Row, StorageLevel
 from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.functions import pandas_udf, udf, explode, array, when
-from pyspark.sql.types import IntegerType, StringType, ArrayType,BooleanType
+from pyspark.sql.functions import pandas_udf, udf, explode, array, when, PandasUDFType
+from pyspark.sql.types import IntegerType, StringType, ArrayType, BooleanType, MapType
 from pyspark.sql.window import Window
 import pyspark.sql.functions as F
+
+# Python function
+import re
+import subprocess
+import pandas as pd
+import pyarrow
+from functools import reduce 
+from collections import Counter
 import copy
+import operator
+import itertools
 
 if __name__ == "__main__":
 # Start for Spark Session
     appname = input("appname, folder name : ")
     folder_name = copy.deepcopy(appname) 
     gvcf_count = int(input("gvcf count : "))
-    
+
+    # Start for Spark Session
     spark = SparkSession.builder.master("spark://master:7077")\
                             .appName(appname)\
                             .config("spark.driver.memory", "8G")\
                             .config("spark.driver.maxResultSize", "5G")\
                             .config("spark.executor.memory", "25G")\
-                            .config("spark.sql.execution.arrow.enabled", "true")\
-                            .config("spark.sql.execution.arrow.fallback.enabled", "true")\
-                            .config("spark.network.timeout", "9999s")\
-                            .config("spark.files.fetchTimeout", "9999s")\
-                            .config("spark.sql.shuffle.partitions", 80)\
+                            .config("spark.memory.fraction", 0.1)\
+                            .config("spark.sql.shuffle.partitions", 100)\
                             .config("spark.eventLog.enabled", "true")\
+                            .config("spark.cleaner.periodicGC.interval", "15min")\
                             .getOrCreate()
 
     spark.sparkContext.addPyFile("function.py")
@@ -37,81 +46,85 @@ if __name__ == "__main__":
 
     # main
     #gvcf_count = 20
+    #gvcf_count = 20
     hdfs = "hdfs://master:9000"
     hdfs_list = hadoop_list(gvcf_count, "/raw_data/gvcf")
+    vcf_header = list()
     vcf_list = list()
 
     for index in range(len(hdfs_list)):
-        vcf_list.append(preVCF(hdfs + hdfs_list[index].decode("UTF-8"), spark).cache())
-
-    if gvcf_count == 20 or gvcf_count == 15:
-        temp1 = join_split(vcf_list[:10])
-        temp2 = join_split(vcf_list[10:])
-        vcf = reduce(reduce_join, [temp1, temp2])
-    elif gvcf_count == 25:
-        temp1 = join_split(vcf_list[:10])
-        temp2 = join_split(vcf_list[10:20])
-        temp3 = join_split(vcf_list[20:])
-        temp4 = reduce(reduce_join, [temp1, temp2])
-        vcf = reduce(reduce_join, [temp3, temp4])
-    elif gvcf_count > 5 and gvcf_count <= 10:
-        temp1 = reduce(reduce_join, vcf_list[:5])
-        temp2 = reduce(reduce_join, vcf_list[5:])
-        vcf = reduce(reduce_join, [temp1, temp2])
-    elif gvcf_count <= 5:
-        vcf = reduce(reduce_join, vcf_list)
-    
-    vcf = with_vale(vcf).cache()
-    vcf.count()    
-    print("full outer join with updated value!!\n")
+        vcf_header.append(headerVCF(hdfs + hdfs_list[index].decode("UTF-8"), spark))
+        vcf_list.append(preVCF(hdfs + hdfs_list[index].decode("UTF-8"), spark).persist(StorageLevel.MEMORY_ONLY))
+    header = unionAll(*vcf_header).cache()
+    header.count()
         
-    # info window
+    headerWrite(header, vcf_header, 0, spark).write.format("text").option("header", "false").mode("append")\
+                                    .save("/raw_data/output/gvcf_output/"+ folder_name + "//" + "gvcf_meta.txt")
+
+    info_last = header.filter(F.col("key") == "##contig").select("value").dropDuplicates(["value"])\
+        .withColumn("value", F.split(F.col("value"), ","))\
+        .select(F.regexp_replace(select_list(F.col("value"), F.lit(0)), "<ID=", "").alias("#CHROM"), 
+                F.concat(F.lit("END="),
+                        F.regexp_replace(select_list(F.col("value"), F.lit(1)), "length=", "")).alias("INFO"))
+
+    vcf = column_rename(vcf_join(vcf_list))
+    vcf = column_revalue(vcf).persist(StorageLevel.MEMORY_ONLY)
+    vcf.count()
+
+    #window
     info_window = Window.partitionBy("#CHROM").orderBy("POS")
     vcf_not_indel = vcf.withColumn("INFO", when(F.col("INFO").isNull(), F.concat(F.lit("END="), F.lead("POS", 1).over(info_window) - 1))\
                                 .otherwise(F.col("INFO")))
 
-    # dropduplicates할 때, indel 삭제되는 경우 있음.
-    # indel union
-    split_col = F.split("REF_temp", '_')
-    indel = indel_union(vcf)
+    not_last = vcf_not_indel.filter(F.col("INFO").isNotNull())
+    last = vcf_not_indel.filter(F.col("INFO").isNull())\
+                    .drop("INFO").join(info_last, ["#CHROM"], "inner")\
+                    .select("#CHROM", "POS", "ID", "REF", "ALT", "INFO", "FORMAT")
+    vcf_not_indel = unionAll(*[not_last, last])
 
-    indel_com = unionAll(*[indel, vcf_not_indel])\
+    # indel union & parquet write
+    unionAll(*[indel_union(vcf), vcf_not_indel])\
                     .orderBy(F.col("#CHROM"), F.col("POS"))\
                     .dropDuplicates(["#CHROM", "POS"])\
-                    .cache()                 
+                    .write.mode('overwrite')\
+                    .parquet("/raw_data/output/gvcf_output/" + folder_name + "//info.g.vcf")
+
+    spark.catalog.clearCache()
+    spark.stop()
+
+    ## Parquet write for sample
+    cnt = 0
+    num = 10
+    part_num = 80
+    # Start for Spark Session with write
+    spark = SparkSession.builder.master("spark://master:7077")\
+                            .appName(appname + "_sample" + str(num) + "_" + str(part_num))\
+                            .config("spark.driver.memory", "8G")\
+                            .config("spark.driver.maxResultSize", "5G")\
+                            .config("spark.executor.memory", "25G")\
+                            .config("spark.sql.shuffle.partitions", part_num)\
+                            .config("spark.eventLog.enabled", "true")\
+                            .config("spark.memory.fraction", 0.05)\
+                            .config("spark.cleaner.periodicGC.interval", "15min")\
+                            .getOrCreate()
+
+    hdfs = "hdfs://master:9000"
+    hdfs_list = hadoop_list(gvcf_count, "/raw_data/gvcf")
+    vcf_list = list()
+    for index in range(len(hdfs_list)):
+        vcf_list.append(sampleVCF(hdfs + hdfs_list[index].decode("UTF-8"), spark))
+        
+    indel_com = spark.read.parquet("/raw_data/output/gvcf_output/" + folder_name + "//info.g.vcf")\
+                    .select(["#CHROM","POS","FORMAT"])\
+                    .withColumn("FORMAT", F.array_remove(F.split(F.col("FORMAT"), ":"), "GT"))\
+                    .orderBy(F.col("#CHROM"), F.col("POS")).persist(StorageLevel.MEMORY_ONLY)
     indel_com.count()
 
-    indel.unpersist()
-    vcf.unpersist()
-    print("indel add completed!!\n")
-
-    # parquet write
-    sample_w = Window.partitionBy(F.col("#CHROM")).orderBy(F.col("POS")).rangeBetween(Window.unboundedPreceding, Window.currentRow)  
-    parquet_list = list()
-    cnt = 0
-
-    ## sample & info comibne, value window
-    for index in range(len(vcf_list)):
-        temp = indel_com.select(["#CHROM","POS"])\
-            .join(vcf_list[index].select(["#CHROM", "POS"] + vcf_list[index].columns[7:]), ["#CHROM", "POS"], "full")
-            # sample window    
-        temp = temp.withColumn(temp.columns[-1], F.last(temp.columns[-1], ignorenulls=True).over(sample_w))
-        parquet_list.append(temp)
-
-    ## parquet write
-    for parquet in join_split_inner(parquet_list):
-        time.sleep(30)
+    parquet_list = list(map(parquet_revalue, vcf_list))
+    for parquet in join_split_inner(parquet_list, num):
         parquet.write.mode('overwrite')\
-               .parquet("/raw_data/output/gvcf_output/"+ folder_name + "//" + "sample_" + str(cnt) + ".g.vcf")
-            
-        for index in range(cnt, cnt + 3):
-            if len(vcf_list) - 1 < index:
-                break
-            vcf_list[index].unpersist()
-        cnt += 3
-        print("sample" + str(cnt - 1) + "done !!")
+                .parquet("/raw_data/output/gvcf_output/"+ folder_name + "//" + "sample_" + str(cnt) + ".g.vcf")
+        cnt += num
 
-    indel_com.write.mode('overwrite')\
-                    .parquet("/raw_data/output/gvcf_output/" + folder_name + "//info.g.vcf")
-        
-            #.withColumn(sample_name, value_change(F.col(sample_name)))
+    spark.catalog.clearCache()
+    spark.stop()
