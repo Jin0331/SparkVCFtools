@@ -22,22 +22,20 @@ args = parser.parse_args()
 if args.appname:
     appname = args.appname
 
-#appname = input("appname, folder name : ")
 folder_name = copy.deepcopy(appname) 
 
 if __name__ == '__main__':
 
-    # Start for Spark Session
     spark = SparkSession.builder.master("spark://master:7077")\
-                            .appName(appname)\
-                            .config("spark.driver.memory", "8G")\
-                            .config("spark.driver.maxResultSize", "5G")\
-                            .config("spark.executor.memory", "25G")\
-                            .config("spark.memory.fraction", 0.18)\
-                            .config("spark.sql.shuffle.partitions", 100)\
-                            .config("spark.eventLog.enabled", "true")\
-                            .config("spark.cleaner.periodicGC.interval", "15min")\
-                            .getOrCreate()
+                        .appName(appname)\
+                        .config("spark.driver.memory", "8G")\
+                        .config("spark.driver.maxResultSize", "5G")\
+                        .config("spark.executor.memory", "25G")\
+                        .config("spark.memory.fraction", 0.18)\
+                        .config("spark.sql.shuffle.partitions", 100)\
+                        .config("spark.eventLog.enabled", "true")\
+                        .config("spark.cleaner.periodicGC.interval", "15min")\
+                        .getOrCreate()
 
     def hadoop_list(length, hdfs):
         args = "hdfs dfs -ls "+ hdfs +" | awk '{print $8}'"
@@ -110,29 +108,29 @@ if __name__ == '__main__':
         else:
             return row
 
-    def selectCol(row, lhs_len, rhs_len, missing = "."):
-        def rowTodict(format_, row):
-            return_col = []
-            for ref in row:
-                temp_dict = dict()
-                temp = ref.split(":")
-                for index in range(len(temp)):
-                    temp_dict[format_[index]] = temp[index]
-                return_col.append(temp_dict)
-            return return_col
+    def rowTodict(format_, row):
+        return_col = []
+        for ref in row:
+            temp_dict = dict()
+            temp = ref.split(":")
+            for index in range(len(temp)):
+                temp_dict[format_[index]] = temp[index]
+            return_col.append(temp_dict)
+        return return_col
 
-        def dictToFormat(col_value, d_format):
-            result_return = []
-            for temp in col_value:
-                temp_col = []
-                for keys in d_format:
-                    if keys in temp:
-                        temp_col.append(temp[keys])
-                    else:
-                        temp_col.append(".")
-                result_return.append(":".join(temp_col))
-            return tuple(result_return)
+    def dictToFormat(col_value, d_format):
+        result_return = []
+        for temp in col_value:
+            temp_col = []
+            for keys in d_format:
+                if keys in temp:
+                    temp_col.append(temp[keys])
+                else:
+                    temp_col.append(".")
+            result_return.append(":".join(temp_col))
+        return tuple(result_return)
         
+    def selectCol(row, lhs_len, rhs_len, missing = "."):   
         # INFO re      
         AC, AN = 0, 0 
         if row[9] == None :
@@ -230,7 +228,7 @@ if __name__ == '__main__':
         vcf_header.append(headerVCF(hdfs + hdfs_list[index].decode("UTF-8"), spark))
     header = unionAll(*vcf_header)    
     headerWrite(header, vcf_header, 0, spark).coalesce(1).write.format("text").option("header", "false").mode("overwrite")\
-                                    .save("/raw_data/output/vcf_output/"+ folder_name + "//vcf_meta.txt")
+                                             .save("/raw_data/output/vcf_output/"+ folder_name + "//vcf_meta.txt")
 
     # load case.vcf from HDFS
     case = preVCF(hdfs + hdfs_list[0].decode("UTF-8"), 0, spark)
@@ -256,3 +254,5 @@ if __name__ == '__main__':
         .dropDuplicates(['CHROM', 'POS']).orderBy(F.col("CHROM"), F.col("POS"))\
         .write.mode('overwrite').option("delimiter", "\t").option("header", "true")\
         .csv("hdfs://master:9000/raw_data/output/vcf_output/" + folder_name + "//vcf_merge.txt")
+
+    spark.stop()
