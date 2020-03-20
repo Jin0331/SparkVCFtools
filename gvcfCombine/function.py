@@ -1,7 +1,7 @@
 # Spark function
 from pyspark import Row, StorageLevel
 from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql.functions import pandas_udf, udf, explode, array, when, PandasUDFType
+from pyspark.sql.functions import udf, explode, array, when
 from pyspark.sql.types import IntegerType, StringType, ArrayType, BooleanType, MapType
 from pyspark.sql.window import Window
 import pyspark.sql.functions as F
@@ -9,11 +9,7 @@ import pyspark.sql.functions as F
 # Python function
 import re
 import subprocess
-import pandas as pd
-import pyarrow
 from functools import reduce 
-from collections import Counter
-import copy
 import operator
 import itertools
 
@@ -173,26 +169,6 @@ def indel_union(temp):
             .withColumn('ALT', F.lit("*,<NON_REF>"))
     return temp
 
-# 10개 기준임.
-def join_split(v_list):
-    stage1_list = list(chunks(v_list, 5))
-    if len(v_list) == 1:
-        return v_list[0]    
-    stage1 = []
-    for vcf in stage1_list:
-        if len(vcf) == 1:
-            stage1.append(vcf)
-        else :
-            stage1.append(reduce(reduce_join, vcf))
-    return reduce(reduce_join, stage1)
-
-def join_split_inner(v_list, num):
-    stage1_list = list(chunks(v_list, num))
-    stage1 = []
-    for vcf in stage1_list:
-        stage1.append(reduce(reduce_inner_join, vcf))
-    return stage1
-
 def value_merge(find_value, sample):
     del sample["GT"]
     if len(find_value) == len(sample):
@@ -231,6 +207,28 @@ dictsort = udf(dictsort, StringType())
 def find_duplicate(temp):
     return temp.groupBy(F.col("#CHROM"), F.col("POS")).agg((F.count("*")>1).cast("int").alias("e"))\
                .orderBy(F.col("e"), ascending=False)
+# 10개 기준임.
+def join_split(v_list):
+    stage1_list = list(chunks(v_list, 5))
+    stage1 = []
+    for vcf in stage1_list:
+        stage1.append(reduce(reduce_join, vcf))
+    return reduce(reduce_join, stage1)
+
+def join_inner(v_list):
+    if len(v_list) <= 1:
+        return v_list[0]
+    else :
+        return v_list[0].join(v_list[1], ["#CHROM", "POS"], "inner")
+
+def join_split_inner(v_list, num):
+    stage1_list = list(chunks(v_list, num))
+    stage1 = []
+    for vcf in stage1_list:
+        temp = list(chunks(vcf, 2))
+        temp = list(map(join_inner, temp))
+        stage1.append(reduce(reduce_inner_join, temp))
+    return stage1
 
 def vcf_join(v_list):
     chunks_list = list(chunks(v_list, 10))
@@ -259,7 +257,7 @@ def headerWrite(vcf, vcf_list, index, spark):
               .select(F.concat_ws("=", F.col("key"), F.col("value")).alias("meta"))\
               .coalesce(1)
 
-def parquet_revalue(vcf):
+def parquet_revalue(vcf, indel_com):
     sample_w = Window.partitionBy(F.col("#CHROM")).orderBy(F.col("POS")).rangeBetween(Window.unboundedPreceding, Window.currentRow)  
     temp = indel_com.join(vcf, ["#CHROM", "POS"], "full").repartition(F.col("#CHROM"))
     sample_name = temp.columns[-1]
@@ -279,6 +277,15 @@ def parquet_revalue(vcf):
     
     value_union = null_not_value.union(null_value)
     return value_union
+
+def index2dict_2(value, FORMAT):
+    temp = ["." for i in range(len(FORMAT))]
+    FORMAT = dict(zip(FORMAT, temp))
+    for index in list(value.keys()):
+        if index in FORMAT:
+            FORMAT[index] = value[index]
+    return ":".join(list(FORMAT.values()))
+index2dict_2 = udf(index2dict_2, StringType())
 
 ################## unused function
 word_len = udf(lambda col : True if len(col) >= 2 else False, returnType=BooleanType())
@@ -301,15 +308,6 @@ def list2dict_del(value):
     sample = dict(zip(value, temp))
     return sample
 list2dict_del = udf(list2dict_del, returnType=MapType(StringType(), StringType()))
-
-def index2dict_2(value, FORMAT):
-    temp = ["." for i in range(len(FORMAT))]
-    FORMAT = dict(zip(FORMAT, temp))
-    for index in list(value.keys()):
-        if index in FORMAT:
-            FORMAT[index] = value[index]
-    return ":".join(list(FORMAT.values()))
-index2dict_2 = udf(index2dict_2, StringType())
 
 def join_split_inner_2(v_list, num):
     stage1 = list(chunks(v_list, num))
