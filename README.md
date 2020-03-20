@@ -1,10 +1,10 @@
 # SparkVCFtools
 
-``Hadoop 3.1.1 & Spark 2.4.4``
+``Hadoop 3.1.1 & Spark 2.4.5``
 
-* VCF merge
+* VCF Merge
 
-* gVCF combine
+* gVCFCombine
 
 * gVCF to VCF
 
@@ -16,7 +16,7 @@
 
 ``python3 gvcfCombine_sample.py --infoName [test] --c [20] <<- sample file!``
 
-* vcf
+* VCF 
 
 ``python3 vcfmerge.py --appname [test]``
 
