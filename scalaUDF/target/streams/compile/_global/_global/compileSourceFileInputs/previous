@@ -1,0 +1,1 @@
+["sbt.Task[scala.collection.immutable.Map[java.lang.String, scala.collection.Seq[scala.Tuple2[java.nio.file.Path, sbt.nio.FileStamp]]]]",{"2.11.0":{"hashes":[["/usr/local/etc/SparkVCFtools/scalaUDF/scalaUDF.scala","daee0e9f83e71c3cba38ef8275f227ac41b33c3f"]],"lastModifiedTimes":[]}}]

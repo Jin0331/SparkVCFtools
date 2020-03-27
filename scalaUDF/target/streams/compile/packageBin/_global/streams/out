@@ -1,0 +1,17 @@
+[0m[[0m[0mdebug[0m] [0m[0mPackaging /usr/local/etc/SparkVCFtools/scalaUDF/target/scala-2.11/index2dict_2.11-0.1.jar ...[0m
+[0m[[0m[0mdebug[0m] [0m[0mInput file mappings:[0m
+[0m[[0m[0mdebug[0m] [0m[0m	scalaUDF[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /usr/local/etc/SparkVCFtools/scalaUDF/target/scala-2.11/classes/scalaUDF[0m
+[0m[[0m[0mdebug[0m] [0m[0m	scalaUDF/Index2dict$$anonfun$call$1.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /usr/local/etc/SparkVCFtools/scalaUDF/target/scala-2.11/classes/scalaUDF/Index2dict$$anonfun$call$1.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	scalaUDF/Index2dict$$anonfun$call$1$$anonfun$apply$mcVI$sp$1.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /usr/local/etc/SparkVCFtools/scalaUDF/target/scala-2.11/classes/scalaUDF/Index2dict$$anonfun$call$1$$anonfun$apply$mcVI$sp$1.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	scalaUDF/Index2dict$$anonfun$call$3.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /usr/local/etc/SparkVCFtools/scalaUDF/target/scala-2.11/classes/scalaUDF/Index2dict$$anonfun$call$3.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	scalaUDF/Index2dict.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /usr/local/etc/SparkVCFtools/scalaUDF/target/scala-2.11/classes/scalaUDF/Index2dict.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	scalaUDF/Index2dict$$anonfun$1.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /usr/local/etc/SparkVCFtools/scalaUDF/target/scala-2.11/classes/scalaUDF/Index2dict$$anonfun$1.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	scalaUDF/Index2dict$$anonfun$call$2.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /usr/local/etc/SparkVCFtools/scalaUDF/target/scala-2.11/classes/scalaUDF/Index2dict$$anonfun$call$2.class[0m
+[0m[[0m[0mdebug[0m] [0m[0mDone packaging.[0m
