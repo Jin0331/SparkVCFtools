@@ -39,13 +39,14 @@ if __name__ == '__main__':
                             .config("spark.executor.memory", "25G")\
                             .config("spark.sql.shuffle.partitions", part_num)\
                             .config("spark.eventLog.enabled", "true")\
-                            .config("spark.memory.fraction", 0.05)\
+                            .config("spark.memory.fraction", 0.02)\
                             .config("spark.cleaner.periodicGC.interval", "15min")\
                             .getOrCreate()
-
+    spark.udf.registerJavaFunction("index2dict", "scalaUDF.Index2dict", ArrayType(StringType()))
     spark.sparkContext.addPyFile("function.py")
     from function import *
 
+    # sample parquet write
     hdfs = "hdfs://master:9000"
     hdfs_list = hadoop_list(gvcf_count, "/raw_data/gvcf")
     vcf_list = list()
@@ -63,6 +64,6 @@ if __name__ == '__main__':
         parquet.write.mode('overwrite')\
                 .parquet("/raw_data/output/gvcf_output/"+ folder_name + "//" + "sample_" + str(cnt) + ".g.vcf")
         cnt += num
-
+        
     spark.catalog.clearCache()
     spark.stop()

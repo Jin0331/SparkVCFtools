@@ -46,14 +46,33 @@ def preVCF(hdfs, spark):
     vcf_data = vcf_data.drop("QUAL", "FILTER", sample_name)
     
     for index in range(len(vcf_data.columns)):
-        compared_arr = ["#CHROM", "POS"]
-        if vcf_data.columns[index] in compared_arr:
-            continue
-        #####
-        vcf_data = vcf_data.withColumn(vcf_data.columns[index], F.array(vcf_data.columns[index]))
-        #####
-        vcf_data = vcf_data.withColumnRenamed(vcf_data.columns[index], vcf_data.columns[index] + "_" + sample_name)     
-    return vcf_data
+        compared_arr = ["#CHROM", "POS", "REF"]
+        if vcf_data.columns[index] not in compared_arr:
+            vcf_data = vcf_data.withColumn(vcf_data.columns[index], F.array(vcf_data.columns[index]))
+            vcf_data = vcf_data.withColumnRenamed(vcf_data.columns[index], vcf_data.columns[index] + "_" + sample_name)     
+    vcf_data = vcf_data.withColumnRenamed("REF", "REF_" + sample_name)    
+    vcf_data = vcf_data.withColumn("count", F.length(vcf_data.columns[3]))
+    
+    # window & split col parameter 
+    sample_ref = vcf_data.columns[3]
+    indel_window = Window.partitionBy("#CHROM").orderBy("POS")
+    split_col = F.split("REF_temp", '_')
+    ###
+    
+    vcf_data = vcf_data.withColumn("count", when(F.col("count") >= 2, F.lead("POS", 1).over(indel_window) - F.col("POS") - F.lit(1))\
+                                           .otherwise(F.lit(0)))
+
+    not_indel = vcf_data.drop("count").withColumn(sample_ref, F.array(F.col(sample_ref)))
+    indel = vcf_data.filter(F.col("count") >= 1)\
+                .withColumn(sample_ref, ref_melt(F.col(sample_ref), F.col("count"))).drop("count")\
+                .withColumn(sample_ref, explode(F.col(sample_ref))).withColumnRenamed(sample_ref, "REF_temp")\
+                .withColumn(sample_ref, F.array(split_col.getItem(0))).withColumn('POS_var', split_col.getItem(1))\
+                .drop(F.col("REF_temp")).withColumn("POS", (F.col("POS") + F.col("POS_var")).cast(IntegerType()))\
+                .drop(F.col("POS_var"))\
+                .withColumn(vcf_data.columns[2], F.array(F.lit(".")))\
+                .withColumn(vcf_data.columns[4], F.array(F.lit("*, <NON_REF>")))
+    
+    return not_indel.unionByName(indel) 
 
 firstremove = udf(lambda value : value[1:], ArrayType(StringType()))
 def sampleVCF(hdfs, spark):
@@ -87,20 +106,14 @@ def chunks(lst, n):
 def unionAll(*dfs):
     return reduce(DataFrame.unionByName, dfs) 
 
-# for indel
-ref_melt = udf(lambda ref : list(ref)[1:], ArrayType(StringType()))    
-
-def ref_concat(temp): 
+def ref_melt(ref, count):
+    temp = list(ref)[1:count + 1]
     return_str = []
-    for num in range(0, len(temp)):
+    for num in range(len(temp)):
         return_str.append(temp[num] + "_" + str(int(num + 1)))
     return return_str
-ref_concat = udf(ref_concat, ArrayType(StringType()))
+ref_melt = udf(ref_melt, ArrayType(StringType()))
 
-#@pandas_udf(ArrayType(StringType()))
-
-# for sample value
-value_change = udf(lambda value : "./." + value[3:], StringType())
 
 def reduce_join(left, right):   
     return_vcf = left.join(right, ["#CHROM", "POS"], "full")
@@ -118,11 +131,11 @@ def reduce_join(left, right):
                                        when(F.isnull(column_name(l_name, name)[0]), F.col(column_name(r_name, name)[0]))\
                                        .when(F.isnull(column_name(r_name, name)[0]), F.col(column_name(l_name, name)[0]))
                                        .otherwise(F.array_union(*column_name(v_name, name))))
-            
-        return_vcf = return_vcf.withColumn(column_name(l_name, name)[0], 
-                                       when(F.isnull(column_name(l_name, name)[0]), F.col(column_name(r_name, name)[0]))\
-                                       .when(F.isnull(column_name(r_name, name)[0]), F.col(column_name(l_name, name)[0]))
-                                       .otherwise(F.array_union(*column_name(v_name, name))))
+        else :
+            return_vcf = return_vcf.withColumn(column_name(l_name, name)[0], 
+                                           when(F.isnull(column_name(l_name, name)[0]), F.col(column_name(r_name, name)[0]))\
+                                           .when(F.isnull(column_name(r_name, name)[0]), F.col(column_name(l_name, name)[0]))
+                                           .otherwise(F.array_union(*column_name(v_name, name))))
     return_vcf = return_vcf.drop(*remove_colname)
                                         
     return return_vcf
@@ -157,53 +170,6 @@ def column_revalue(vcf):
             vcf = vcf.withColumn(name, F.array_max(F.col(name)))
     return vcf
 
-def indel_union(temp):
-    split_col = F.split("REF_temp", '_')
-    temp = temp.filter(F.length(F.col("REF")) >= 2)\
-            .withColumn("REF", ref_melt(F.col("REF"))).withColumn("REF", ref_concat(F.col("REF")))\
-            .withColumn("REF", explode(F.col("REF"))).withColumnRenamed("REF", "REF_temp")\
-            .withColumn('REF', split_col.getItem(0)).withColumn('POS_var', split_col.getItem(1))\
-            .drop(F.col("REF_temp")).withColumn("POS", (F.col("POS") + F.col("POS_var")).cast(IntegerType()))\
-            .drop(F.col("POS_var"))\
-            .withColumn('ID', F.lit("."))\
-            .withColumn('ALT', F.lit("*,<NON_REF>"))
-    return temp
-
-def value_merge(find_value, sample):
-    del sample["GT"]
-    if len(find_value) == len(sample):
-        return_string = list(sample.values())
-        return ":".join(return_string)
-    else :
-        return_string = []
-        for value in find_value:
-            format_value = sample.get(value)
-            if format_value == None:
-                format_value = "."
-            return_string.append(format_value)      
-        return ":".join(return_string)
-value_merge = udf(value_merge, StringType())
-
-def index2dict(value, index):
-    temp = ["." for i in range(len(index))]
-    sample = dict(zip(index, temp))
-    merge_dict = {**value, **sample}
-    sort_dict = sorted(merge_dict.items(), key=operator.itemgetter(0))
-    return reduce(lambda x, y: (0, x[1] + ":" + y[1]), sort_dict)[1]
-index2dict = udf(index2dict, StringType())
-
-nullCheck = udf(lambda value : len(value) == 0, BooleanType())
-
-def str2list(value):
-    temp = ["." for index in range(len(value))]
-    return temp
-str2list = udf(str2list, ArrayType(StringType()))
-
-def dictsort(value):
-    sort_dict = sorted(value.items(), key=operator.itemgetter(0))
-    return reduce(lambda x, y: (0, x[1] + ":" + y[1]), sort_dict)[1]
-dictsort = udf(dictsort, StringType())
-
 def find_duplicate(temp):
     return temp.groupBy(F.col("#CHROM"), F.col("POS")).agg((F.count("*")>1).cast("int").alias("e"))\
                .orderBy(F.col("e"), ascending=False)
@@ -228,6 +194,13 @@ def join_split_inner(v_list, num):
         temp = list(chunks(vcf, 2))
         temp = list(map(join_inner, temp))
         stage1.append(reduce(reduce_inner_join, temp))
+    return stage1
+
+def join_split_inner_2(v_list, num):
+    stage1_list = list(chunks(v_list, num))
+    stage1 = []
+    for vcf in stage1_list:
+        stage1.append(reduce(reduce_inner_join, vcf))
     return stage1
 
 def vcf_join(v_list):
@@ -263,63 +236,16 @@ def parquet_revalue(vcf, indel_com):
     sample_name = temp.columns[-1]
     
     temp = temp.withColumn(sample_name, F.last(sample_name, ignorenulls=True).over(sample_w))\
-             .withColumn("key", F.map_keys(F.col(sample_name)))\
-             .withColumn("index", F.array_remove(F.array_except("FORMAT", "key"), "SB"))\
-             .drop("key")
-
-    null_not_value = temp.filter(F.map_keys(F.col(sample_name)) != F.col("FORMAT")).drop("index")\
-                     .repartition(F.col("#CHROM"), F.col("POS"), F.col("FORMAT"), F.col(sample_name))\
-                     .withColumn(sample_name, F.concat(F.lit("./.:"), index2dict_2(F.col(sample_name), F.col("FORMAT"))))\
-                     .drop("FORMAT")
+               .withColumnRenamed("#CHROM", "CHROM")
     
-    null_value = temp.filter(F.map_keys(F.col(sample_name)) == F.col("FORMAT")).drop("FORMAT", "index")\
-             .withColumn(sample_name, F.concat(F.lit("./.:"), F.array_join(F.map_values(F.col(sample_name)), ":")))
+    # scala UDF
+    null_not_value = temp.filter(F.map_keys(F.col(sample_name)) != F.col("FORMAT"))\
+                     .repartition(200,F.col("CHROM"), F.col("POS"), F.col("FORMAT"), F.col(sample_name))\
+                     .selectExpr("CHROM", "POS","index2dict({}, FORMAT) as {}".format(sample_name, sample_name))\
+                     .withColumn(sample_name,  F.concat(F.lit("./.:"), F.array_join(F.col(sample_name), ":")))
     
-    value_union = null_not_value.union(null_value)
+    null_value = temp.filter(F.map_keys(F.col(sample_name)) == F.col("FORMAT")).drop("FORMAT")\
+                     .withColumn(sample_name, F.concat(F.lit("./.:"), F.array_join(F.map_values(F.col(sample_name)), ":")))
+    
+    value_union = null_not_value.union(null_value).withColumnRenamed("CHROM", "#CHROM")
     return value_union
-
-def index2dict_2(value, FORMAT):
-    temp = ["." for i in range(len(FORMAT))]
-    FORMAT = dict(zip(FORMAT, temp))
-    for index in list(value.keys()):
-        if index in FORMAT:
-            FORMAT[index] = value[index]
-    return ":".join(list(FORMAT.values()))
-index2dict_2 = udf(index2dict_2, StringType())
-
-################## unused function
-word_len = udf(lambda col : True if len(col) >= 2 else False, returnType=BooleanType())
-
-def info_change(temp):
-    some_list = temp.split(";")
-    result = [i for i in some_list if i.startswith('DP=')]
-    return result[0]
-info_change = udf(info_change, StringType())
-
-def list_flat(value):
-    value = list(filter(None, value))
-    value = list(itertools.chain(*value))
-    del value[0]
-    return value
-list_flat = udf(list_flat, ArrayType(StringType()))
-
-def list2dict_del(value):
-    temp = ["." for index in range(len(value))]
-    sample = dict(zip(value, temp))
-    return sample
-list2dict_del = udf(list2dict_del, returnType=MapType(StringType(), StringType()))
-
-def join_split_inner_2(v_list, num):
-    stage1 = list(chunks(v_list, num))
-    stage2 = [list(value) for value in list(map(chunks, stage1, itertools.repeat(2)))]
-    stage3 = list()
-    for index in range(len(stage1)):
-        temp = list(map(sample_inner, stage2[index]))
-        stage3.append(tmep)
-    return stage3
-
-def sample_inner_del(v_list):
-    if len(v_list) <= 1:
-        return v_list[0]
-    else :
-        return v_list[0].join(v_list[1], ["#CHROM", "POS"], "inner")
