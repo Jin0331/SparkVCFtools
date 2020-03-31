@@ -231,18 +231,16 @@ def headerWrite(vcf, vcf_list, index, spark):
               .coalesce(1)
 
 def parquet_revalue(vcf, indel_com):
-    sample_w = Window.partitionBy(F.col("#CHROM")).orderBy(F.col("POS")).rangeBetween(Window.unboundedPreceding, Window.currentRow)  
-    temp = indel_com.join(vcf, ["#CHROM", "POS"], "full").repartition(F.col("#CHROM"))
+    temp = indel_com.join(vcf, ["#CHROM", "POS"], "full")
     sample_name = temp.columns[-1]
     
-    temp = temp.withColumn(sample_name, F.last(sample_name, ignorenulls=True).over(sample_w))\
-               .withColumnRenamed("#CHROM", "CHROM")
+    sample_w = Window.partitionBy(F.col("#CHROM")).orderBy(F.col("POS")).rangeBetween(Window.unboundedPreceding, Window.currentRow)  
+    temp = temp.withColumn(sample_name, F.last(sample_name, ignorenulls=True).over(sample_w)).withColumnRenamed("#CHROM", "CHROM")
     
     # scala UDF
     null_not_value = temp.filter(F.map_keys(F.col(sample_name)) != F.col("FORMAT"))\
-                     .repartition(200,F.col("CHROM"), F.col("POS"), F.col("FORMAT"), F.col(sample_name))\
-                     .selectExpr("CHROM", "POS","index2dict({}, FORMAT) as {}".format(sample_name, sample_name))\
-                     .withColumn(sample_name,  F.concat(F.lit("./.:"), F.array_join(F.col(sample_name), ":")))
+                         .selectExpr("CHROM", "POS","index2dict({}, FORMAT) as {}".format(sample_name, sample_name))\
+                         .withColumn(sample_name,  F.concat(F.lit("./.:"), F.array_join(F.col(sample_name), ":")))
     
     null_value = temp.filter(F.map_keys(F.col(sample_name)) == F.col("FORMAT")).drop("FORMAT")\
                      .withColumn(sample_name, F.concat(F.lit("./.:"), F.array_join(F.map_values(F.col(sample_name)), ":")))

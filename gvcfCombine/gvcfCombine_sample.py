@@ -5,6 +5,7 @@ findspark.init()
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import when
 from pyspark.sql.window import Window
+from pyspark.sql.types import ArrayType, StringType
 import pyspark.sql.functions as F
 
 # Python function
@@ -42,6 +43,7 @@ if __name__ == '__main__':
                             .config("spark.memory.fraction", 0.02)\
                             .config("spark.cleaner.periodicGC.interval", "15min")\
                             .getOrCreate()
+
     spark.udf.registerJavaFunction("index2dict", "scalaUDF.Index2dict", ArrayType(StringType()))
     spark.sparkContext.addPyFile("function.py")
     from function import *
@@ -58,6 +60,7 @@ if __name__ == '__main__':
                     .withColumn("FORMAT", F.array_remove(F.split(F.col("FORMAT"), ":"), "GT"))\
                     .orderBy(F.col("#CHROM"), F.col("POS")).persist(StorageLevel.MEMORY_ONLY)
     indel_com.count()
+    print("info gvcf count : " ,indel_com.count())
 
     parquet_list = list(map(lambda arg : parquet_revalue(arg, indel_com), vcf_list))
     for parquet in join_split_inner(parquet_list, num):
