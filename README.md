@@ -1,7 +1,12 @@
-# (KCC2020 우수논문) 분산병렬 클러스터를 이용한 GVCF(Genome Variant Call Format) 파일 정렬/병합
+![image](https://user-images.githubusercontent.com/42958809/172269760-e3d586c3-8df0-4f1d-b6e4-e9c0043e936a.png)
 
-# 초록
-차세대 시퀀싱(next generation sequencing, NGS) 기법의 발달로 인하여 방대한 유전체 데이터의 분산, 병렬처리가 필수적인 방법론으로 대두되고 있다. NGS 유전체 데이터 처리는 데이터 규모로 인하여 일반적으로 매우 긴 실행 시간을 필요로 한다. 본 논문에서는 GVCF 파일 정렬/병합 실행 시간을 단축하기 위하여 분산병렬 클러스터를 이용한 새로운 GVCF 파일 정렬/병합 모듈을 제안한다. 제안하는 모듈에서는 분산병렬 클러스터인 Spark를 사용하며, 클러스터 내의 자원을 효율적으로 사용하기 위해 GVCF 파일의 특성을 고려한 두 단계의 과정으로 정렬/병합을 진행한다. 성능 평가를 위하여 GATK의 CombineGVCFs 모듈과 제안하는 모듈의 GVCF 파일의 개수에 따른 정렬/병합 실행시간을 측정하여 비교 및 평가를 진행하였다. 실험 결과에 의하여 제안하는 방식이 실행시간을 매우 효율적으로 단축시키고 있음을 확인하였으며, 제안하는 방식의 유용성을 입증하였다.
+```
+- KCC2020 데이터베이스분야 최우수논문
+- DOI : 10.5626/JOK.2021.48.3.358
+```
+
+# Abstract
+With the development of next-generation sequencing (NGS) techniques, a large volume of genomic data is being produced and accumulated, and parallel and distributed computing has become an essential tool. Generally, NGS data processing entails two main steps: obtaining read alignment results in BAM format and extracting variant information in genome variant call format (GVCF) or variant call format (VCF). However, each step requires a long execution time due to the size of the data. In this study, we propose a new GVCF file sorting/merging module using distributed parallel clusters to shorten the execution time. In the proposed algorithm, Spark is used as a distributed parallel cluster. The sorting/merge process is performed in two steps according to the structural characteristics of the GVCF file in order to use the resources in the cluster efficiently. The performance was evaluated by comparing our method with the GATK's CombineGVCFs module based on sorting and merging execution time of multiple GVCF files. The outcomes suggest the effectiveness of the proposed method in reducing execution time. The method can be used as a scalable and powerful distributed computing tool to solve the GVCF file sorting/merge problem.
 
 
 # SparkVCFtools
