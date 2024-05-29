@@ -1,5 +1,7 @@
 # 🔧 **SparkVCFTools**
 
+[![히히](https://github.com/Jin0331/SparkVCFtools/assets/42958809/ffdec167-b116-4be6-b190-e7e4294fd0ed)](https://www.dbpia.co.kr/Journal/articleDetail?nodeId=NODE10536773)
+
 > 기간 : 2020.03 - 2020.06 (약 3개월)
 >
 > 기획/개발 - 1인
