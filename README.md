@@ -72,7 +72,7 @@
 
 * ***전체 구성도***
   
-  <img width="584" alt="image-12" src="https://github.com/Jin0331/SparkVCFtools/assets/42958809/bb5df255-13b5-4b66-8e7d-8c7ce412f041">
+  <img width="500" alt="image-12" src="https://github.com/Jin0331/SparkVCFtools/assets/42958809/bb5df255-13b5-4b66-8e7d-8c7ce412f041">
 
 * ***Phase 1***
 
@@ -87,7 +87,7 @@
 
     * Phase 1 Action
 
-        <img width="558" alt="image-17" src="https://github.com/Jin0331/SparkVCFtools/assets/42958809/d084226f-3628-45d1-ae5e-5379d46854d8">
+        <img width="500" alt="image-17" src="https://github.com/Jin0331/SparkVCFtools/assets/42958809/d084226f-3628-45d1-ae5e-5379d46854d8">
 
 * ***Phase 2***
 
@@ -106,7 +106,7 @@
 
     * Phase 2 Action
 
-        ![image-22](https://github.com/Jin0331/SparkVCFtools/assets/42958809/863e3f3f-fd62-43f1-b6fc-c471d0622a78)
+        <img width="500" alt="image-22" src="https://github.com/Jin0331/SparkVCFtools/assets/42958809/863e3f3f-fd62-43f1-b6fc-c471d0622a78">
 
 
 ## 🔧 **성능 평가**
