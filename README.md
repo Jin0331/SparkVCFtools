@@ -1,7 +1,5 @@
 # 🔧 **SparkVCFTools**
 
-[![히히](https://github.com/Jin0331/SparkVCFtools/assets/42958809/ffdec167-b116-4be6-b190-e7e4294fd0ed)](https://www.dbpia.co.kr/Journal/articleDetail?nodeId=NODE10536773)
-
 > 기간 : 2020.03 - 2020.06 (약 3개월)
 >
 > 기획/개발 - 1인
@@ -9,7 +7,9 @@
 > 프로젝트 환경 - Ubuntu 18.04 LTS Bionic Beaver
 >
 > **KCC2020(한국컴퓨터종합학술대회) 데이터베이스분야 최우수논문**
->
+
+[![히히](https://github.com/Jin0331/SparkVCFtools/assets/42958809/ffdec167-b116-4be6-b190-e7e4294fd0ed)](https://www.dbpia.co.kr/Journal/articleDetail?nodeId=NODE10536773)
+
 > **이진우, 원정임, 윤지희, "분산병렬 클러스터 컴퓨팅을 이용한 GVCF(Genome Variant Call Format) 파일의 정렬 및 병합 방법", Journal of KIISE(KCI 우수등재), 2021. (제1저자)**
 >
 >***DOI : 10.5626/JOK.2021.48.3.358***
