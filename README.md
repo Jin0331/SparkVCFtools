@@ -20,6 +20,28 @@
 
 <br>
 
+## 🔧 **적용 기술**
+
+* ***언어***
+
+    Python, Scala
+
+* ***프레임워크***
+
+    Apache Hadoop, Apache Spark, Docker, Docker Swarm
+
+
+* ***오픈 소스***
+
+    PySpark
+
+* ***버전 관리***
+
+  ​	Git / Github
+
+  <br>
+
+
 ## 🔧 **개발 배경**
 
 1. 유전자/변이 분석에 일반적으로 사용되는 Broad Institute의 GATK(genome analysis toolkit)는 NGS(차세대 시퀀싱) 데이터 분석 및 처리를 위한 단계별 모듈을 제공
